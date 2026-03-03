@@ -26,9 +26,9 @@ anime_waifu_vault/
     └── fanart/
 ```
 
-## Cara Setup (XAMPP)
+## Cara Setup
 
-### 1. Taruh file di XAMPP
+### 1. Taruh file di htdocs/www
 Salin seluruh folder ke:
 ```
 C:/xampp/htdocs/anime_waifu_vault/
