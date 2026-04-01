@@ -1,0 +1,25 @@
+RewriteEngine On
+
+# Paksa HTTPS hanya pada host yuuki-anime.rf.gd
+RewriteCond %{HTTP_HOST} ^(www\.)?yuuki-anime\.rf\.gd$ [NC]
+RewriteCond %{HTTPS} !=on [OR]
+RewriteCond %{HTTP:X-Forwarded-Proto} !https
+RewriteRule ^ https://yuuki-anime.rf.gd%{REQUEST_URI} [L,R=301,NE]
+
+# Kirim manifest via PHP agar aman
+RewriteRule ^manifest\.json$ manifest.php [L,QSA]
+
+<IfModule mod_headers.c>
+    <FilesMatch "^(api\.php|manifest\.php|manifest.json|service-worker\.js)$">
+        Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+        Header set X-Content-Type-Options "nosniff"
+        Header set Referrer-Policy "strict-origin-when-cross-origin"
+        Header set Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval';"
+    </FilesMatch>
+
+    <Files "manifest.php">
+        Header set Content-Type "application/manifest+json; charset=utf-8"
+    </Files>
+</IfModule>

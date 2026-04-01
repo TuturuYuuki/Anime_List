@@ -5,9 +5,52 @@
 CREATE DATABASE IF NOT EXISTS anime_waifu_vault CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE anime_waifu_vault;
 
+-- Tabel Users
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL,
+    email VARCHAR(190) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    profile_pict VARCHAR(500) DEFAULT NULL,
+    bio TEXT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_users_username (username),
+    UNIQUE KEY uq_users_email (email)
+) ENGINE=InnoDB;
+
+-- Tabel Kredensial WebAuthn (Fingerprint/Face Unlock)
+CREATE TABLE IF NOT EXISTS user_credentials (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    credential_id VARCHAR(255) NOT NULL,
+    public_key TEXT DEFAULT NULL,
+    sign_count BIGINT NOT NULL DEFAULT 0,
+    transports VARCHAR(255) DEFAULT NULL,
+    aaguid VARCHAR(64) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used_at TIMESTAMP NULL DEFAULT NULL,
+    UNIQUE KEY uq_user_credentials_credential_id (credential_id),
+    INDEX idx_user_credentials_user_id (user_id),
+    CONSTRAINT fk_user_credentials_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+-- Tabel Token Reset Password
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    token VARCHAR(128) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME NULL DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_password_reset_token (token),
+    INDEX idx_password_reset_user_id (user_id),
+    CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 -- Tabel Animes
 CREATE TABLE IF NOT EXISTS animes (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT DEFAULT NULL,
     mal_id INT DEFAULT NULL,
     judul VARCHAR(255) NOT NULL,
     eps_nonton INT DEFAULT 0,
@@ -21,6 +64,7 @@ CREATE TABLE IF NOT EXISTS animes (
 -- Tabel Waifus
 CREATE TABLE IF NOT EXISTS waifus (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT DEFAULT NULL,
     nama VARCHAR(255) NOT NULL,
     anime_asal VARCHAR(255) DEFAULT NULL,
     umur VARCHAR(50) DEFAULT NULL,

@@ -1,213 +1,147 @@
-// service-worker.js - PWA Service Worker untuk Anime & Waifu Vault
 
-const CACHE_NAME = 'anime-waifu-vault-v1';
-const STATIC_CACHE = 'static-v1';
 
-// Aset yang di-cache saat install
-const STATIC_ASSETS = [
-    '/',
-    '/index.php',
-    '/search_api.js',
-    '/manifest.json',
-    'https://cdn.tailwindcss.com',
-    'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Nunito:wght@400;600;700;800&display=swap'
+const CACHE_NAME   = 'anime-waifu-vault-v42';
+const STATIC_CACHE = 'static-v42';
+const CDN_CACHE    = 'cdn-v42';
+
+// ── ASET KRITIKAL LOKAL ─────────────────────────────────────────────────────
+const CRITICAL_ASSETS = [
+    './',
+    './index.php?cachebust=17',
+    './search_api.js?v=20260328',
+    './auth.js?v=20260328',
+    './vendor/tailwindcss-cdn.js',
+    './manifest.php',
+    './icons/icon.png',
+    './icons/icon-192.png',
+    './icons/icon-512.png',
+];
+
+// ── HOST CDN AMAN (Font & CSS — tidak mengandung JS eksekutable) ───────────
+const CDN_CACHE_FIRST_HOSTS = [
+    'fonts.googleapis.com',
+    'fonts.gstatic.com',
+    'cdnjs.cloudflare.com',   // hanya CropperJS CSS/JS — tidak ada CORS issue
 ];
 
 // ============ INSTALL ============
 self.addEventListener('install', event => {
-    console.log('[SW] Installing...');
+    self.skipWaiting();
     event.waitUntil(
-        caches.open(STATIC_CACHE)
-            .then(cache => {
-                return cache.addAll(STATIC_ASSETS.map(url => {
-                    return new Request(url, { mode: 'cors' });
-                })).catch(err => {
-                    console.warn('[SW] Some assets failed to cache:', err);
-                });
-            })
-            .then(() => self.skipWaiting())
+        caches.open(STATIC_CACHE).then(async cache => {
+            // Promise.allSettled: satu aset gagal tidak batalkan seluruh install
+            const results = await Promise.allSettled(
+                CRITICAL_ASSETS.map(url =>
+                    fetch(url, { cache: 'no-cache' })
+                        .then(res => { if (res.ok) return cache.put(url, res); })
+                        .catch(err => console.warn('[SW] Skip (offline?):', url, err))
+                )
+            );
+            const ok = results.filter(r => r.status === 'fulfilled').length;
+            console.log(`[SW] v41 Install: ${ok}/${CRITICAL_ASSETS.length} aset di-cache.`);
+        })
     );
 });
 
 // ============ ACTIVATE ============
 self.addEventListener('activate', event => {
-    console.log('[SW] Activating...');
     event.waitUntil(
-        caches.keys().then(cacheNames => {
-            return Promise.all(
-                cacheNames
-                    .filter(name => name !== CACHE_NAME && name !== STATIC_CACHE)
-                    .map(name => caches.delete(name))
-            );
-        }).then(() => self.clients.claim())
+        caches.keys().then(names =>
+            Promise.all(
+                names
+                    .filter(n => n !== CACHE_NAME && n !== STATIC_CACHE && n !== CDN_CACHE)
+                    .map(n => { console.log('[SW] Hapus cache lama:', n); return caches.delete(n); })
+            )
+        ).then(() => self.clients.claim())
     );
 });
 
-// ============ FETCH STRATEGY ============
+// ============ FETCH ROUTING ============
 self.addEventListener('fetch', event => {
-    const { request } = event;
-    const url = new URL(request.url);
+    const url = new URL(event.request.url);
+    if (event.request.method !== 'GET') return;
 
-    // Skip non-GET requests (POST untuk form submit, dsb)
-    if (request.method !== 'GET') return;
+    // ── RULE 0: cdn.jsdelivr.net → JANGAN INTERCEPT SAMA SEKALI ─────────────
+    // Ini adalah fix definitif untuk bug DAD.
+    // SW tidak menyentuh SortableJS (atau library JS lain dari jsdelivr).
+    // Browser mengelola cache-nya sendiri via HTTP Cache-Control header,
+    // yang benar dan tidak menyebabkan opaque/CORS response bug.
+    if (url.hostname === 'cdn.jsdelivr.net') {
+        return; // Lewati — browser handle sendiri
+    }
 
-    // Skip API calls ke Jikan dan request API lokal - selalu online
+    // ── RULE 1: Font & CSS CDN → Cache-First ─────────────────────────────────
+    if (CDN_CACHE_FIRST_HOSTS.some(h => url.hostname.includes(h))) {
+        event.respondWith(cacheFirst(event.request, CDN_CACHE));
+        return;
+    }
+
+    // ── RULE 2: Gambar & upload → Cache-First ────────────────────────────────
     if (
-        url.hostname === 'api.jikan.moe' ||
-        url.pathname.includes('api.php') ||
-        url.pathname.includes('api.dicebear.com')
+        event.request.destination === 'image' ||
+        url.pathname.includes('/uploads/') ||
+        url.hostname.includes('dicebear.com')
     ) {
-        event.respondWith(
-            fetch(request).catch(() => {
-                return new Response(JSON.stringify({ error: 'Offline' }), {
-                    headers: { 'Content-Type': 'application/json' }
-                });
-            })
-        );
+        event.respondWith(cacheFirstImage(event.request));
         return;
     }
 
-    // Untuk gambar uploads: Cache first
-    if (url.pathname.includes('/uploads/')) {
-        event.respondWith(cacheFirst(request));
-        return;
-    }
-
-    // Untuk halaman utama: Network first, fallback ke cache
-    if (url.pathname.endsWith('.php') || url.pathname === '/') {
-        event.respondWith(networkFirst(request));
-        return;
-    }
-
-    // Untuk aset statis (JS, CSS, font): Cache first
-    event.respondWith(cacheFirst(request));
+    // ── RULE 3: PHP, JS lokal, API → Network-First ───────────────────────────
+    event.respondWith(networkFirst(event.request));
 });
 
-// ============ STRATEGIES ============
+// ============ IMPLEMENTASI STRATEGI ============
 
-/**
- * Network First - Coba network dulu, fallback ke cache
- */
-async function networkFirst(request) {
-    try {
-        const networkResponse = await fetch(request);
-        if (networkResponse.ok) {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(request, networkResponse.clone());
-        }
-        return networkResponse;
-    } catch (err) {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        return offlinePage();
-    }
-}
-
-/**
- * Cache First - Cek cache dulu, fallback ke network
- */
-async function cacheFirst(request) {
+async function cacheFirst(request, cacheName = STATIC_CACHE) {
     const cached = await caches.match(request);
     if (cached) return cached;
-
     try {
-        const networkResponse = await fetch(request);
-        if (networkResponse.ok) {
-            const cache = await caches.open(CACHE_NAME);
-            cache.put(request, networkResponse.clone());
+        const res = await fetch(request);
+        if (res.ok) {
+            const c = await caches.open(cacheName);
+            c.put(request, res.clone());
         }
-        return networkResponse;
-    } catch (err) {
+        return res;
+    } catch {
         return new Response('', { status: 408, statusText: 'Offline' });
     }
 }
 
-/**
- * Halaman offline fallback
- */
-function offlinePage() {
-    return new Response(`
-        <!DOCTYPE html>
-        <html lang="id">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Offline - Anime & Waifu Vault</title>
-            <style>
-                body {
-                    font-family: 'Inter', sans-serif;
-                    background: #0f0a1e;
-                    color: #e2d9f3;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    min-height: 100vh;
-                    margin: 0;
-                    text-align: center;
-                    padding: 20px;
-                }
-                .card {
-                    background: rgba(255,255,255,0.06);
-                    border: 1px solid rgba(167,139,250,0.2);
-                    border-radius: 20px;
-                    padding: 40px 32px;
-                    max-width: 360px;
-                }
-                h1 { color: #c4b5fd; margin-bottom: 8px; font-size: 1.5rem; }
-                p { color: rgba(255,255,255,0.5); font-size: 0.9rem; line-height: 1.6; }
-                button {
-                    margin-top: 20px;
-                    background: linear-gradient(135deg, #7c3aed, #6d28d9);
-                    color: white;
-                    border: none;
-                    padding: 12px 24px;
-                    border-radius: 10px;
-                    font-size: 0.9rem;
-                    cursor: pointer;
-                    font-weight: 600;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="card">
-                <div style="font-size: 3rem; margin-bottom: 16px;">🌸</div>
-                <h1>Sedang Offline</h1>
-                <p>Kamu sedang offline, senpai. Hubungkan ke internet untuk mengakses Anime & Waifu Vault.</p>
-                <button onclick="location.reload()">Coba Lagi</button>
-            </div>
-        </body>
-        </html>
-    `, {
-        headers: { 'Content-Type': 'text/html; charset=utf-8' },
-        status: 200
-    });
+async function cacheFirstImage(request) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    try {
+        const res = await fetch(request);
+        // Gambar boleh simpan opaque (cross-origin tanpa CORS header)
+        if (res.ok || res.type === 'opaque') {
+            const c = await caches.open(STATIC_CACHE);
+            c.put(request, res.clone());
+        }
+        return res;
+    } catch {
+        return new Response('', { status: 408, statusText: 'Offline' });
+    }
 }
 
-// ============ BACKGROUND SYNC (Future Use) ============
-self.addEventListener('sync', event => {
-    if (event.tag === 'sync-animes') {
-        console.log('[SW] Background sync: animes');
+async function networkFirst(request) {
+    try {
+        const res = await fetch(request);
+        if (res.ok) {
+            const c = await caches.open(CACHE_NAME);
+            c.put(request, res.clone());
+        }
+        return res;
+    } catch {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+        if (request.mode === 'navigate') return offlinePage();
+        return new Response('', { status: 408, statusText: 'Offline' });
     }
-});
+}
 
-// ============ PUSH NOTIFICATION (Future Use) ============
-self.addEventListener('push', event => {
-    const data = event.data ? event.data.json() : {};
-    const options = {
-        body: data.body || 'Ada update baru di Anime Vault!',
-        icon: '/icons/icon-192.png',
-        badge: '/icons/icon-72.png',
-        vibrate: [100, 50, 100],
-        data: { url: data.url || '/' }
-    };
-    event.waitUntil(
-        self.registration.showNotification(data.title || 'Anime & Waifu Vault 🌸', options)
+function offlinePage() {
+    return new Response(
+        `<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Offline</title><style>body{background:#0f0a1e;color:#e2d9f3;text-align:center;padding-top:50px;font-family:sans-serif}button{margin-top:20px;padding:12px 24px;background:#7c3aed;color:#fff;border:none;border-radius:8px;font-weight:bold;cursor:pointer}</style></head><body><h1 style="font-size:3rem">🌸</h1><h2>Sedang Offline</h2><p>Silakan hubungkan ke internet, senpai.</p><button onclick="location.reload()">Coba Lagi</button></body></html>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
     );
-});
-
-self.addEventListener('notificationclick', event => {
-    event.notification.close();
-    event.waitUntil(
-        clients.openWindow(event.notification.data.url || '/')
-    );
-});
+}
