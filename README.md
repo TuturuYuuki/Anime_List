@@ -40,12 +40,6 @@ anime_waifu_vault/
 4. Sesuaikan konfigurasi koneksi database di `db.php` untuk environment lokalmu.
 5. Jalankan server lokal, lalu buka aplikasi dari browser.
 
-## Keamanan dan Privasi
-
-- Jangan commit kredensial database, token, atau data rahasia lain ke repository.
-- Folder `uploads/` diperlakukan sebagai data privat pengguna dan di-ignore dari Git.
-- Jika ada file sensitif yang pernah ter-track, lakukan untrack sebelum push.
-- Gunakan nilai konfigurasi yang aman untuk environment produksi.
 
 ## Catatan Pengembangan
 
