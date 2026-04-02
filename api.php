@@ -707,8 +707,7 @@ switch ($action) {
 
         jsonResponse([
             'success' => true,
-            'message' => 'Token reset dibuat. (Demo: gunakan token ini di form reset)',
-            'reset_token' => $token
+            'message' => 'Jika email telah terdaftar, token reset telah dikirim.'
         ]);
         break;
 

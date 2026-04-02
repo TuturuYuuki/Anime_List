@@ -1,10 +1,11 @@
 <?php
 // db.php - Koneksi Database dengan PDO
 
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'anime_waifu_vault');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
+define('DB_NAME', getenv('DB_NAME') ?: 'anime_waifu_vault');
+define('DB_USER', getenv('DB_USER') ?: 'root');
+// DB_PASS default kosong hanya untuk development lokal; set env DB_PASS di production
+define('DB_PASS', getenv('DB_PASS') !== false ? getenv('DB_PASS') : '');
 define('DB_PORT', getenv('DB_PORT') ?: '3306');
 define('DB_CHARSET', 'utf8mb4');
 
