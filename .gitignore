@@ -1,6 +1,0 @@
-.vscode/
-uploads/
-_backup_before_restore_*/
-*.log
-.env
-.env.*
