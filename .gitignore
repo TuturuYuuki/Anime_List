@@ -1,0 +1,16 @@
+# File upload pengguna - data pribadi, tidak boleh di-commit
+uploads/anime/
+uploads/waifu/
+uploads/fanart/
+uploads/profile/
+uploads/cache/
+
+# Environment/konfigurasi lokal
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.swp
+*.swo
